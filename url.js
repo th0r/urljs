@@ -1,51 +1,26 @@
-/*!
- * URL.js
- *
- * Copyright 2011 Eric Ferraiuolo
- * https://github.com/ericf/urljs
- */
-
-/**
- * URL constructor and utility.
- * Provides support for validating whether something is a URL,
- * formats and cleans up URL-like inputs into something nice and pretty,
- * ability to resolve one URL against another and returned the formatted result,
- * and is a convenient API for working with URL Objects and the various parts of URLs.
- *
- * @constructor URL
- * @param       {String | URL}  url - the URL String to parse or URL instance to copy
- * @return      {URL}           url - instance of a URL all nice and parsed
- */
-var URL = function () {
-
-    var u = this;
-
-    if (!(u && u.hasOwnProperty && (u instanceof URL))) {
-        u = new URL();
+(function (root, factory) {
+    if (typeof define === 'function' && define.amd) {
+        define(factory);
+    } else if (typeof exports === 'object') {
+        module.exports = factory();
+    } else {
+        root.URL = factory();
     }
+}(this, function () {
+    'use strict';
 
-    return u._init.apply(u, arguments);
-};
-
-(function () {
+    /*!
+     * URL.js (modified version)
+     *
+     * Copyright 2011 Eric Ferraiuolo
+     * https://github.com/ericf/urljs
+     * 
+     * Fork by th0r
+     * https://github.com/th0r/urljs
+     */
 
     var ABSOLUTE = 'absolute',
         RELATIVE = 'relative',
-
-        HTTP = 'http',
-        HTTPS = 'https',
-        COLON = ':',
-        SLASH_SLASH = '//',
-        AT = '@',
-        DOT = '.',
-        SLASH = '/',
-        DOT_DOT = '..',
-        DOT_DOT_SLASH = '../',
-        QUESTION = '?',
-        EQUALS = '=',
-        AMP = '&',
-        HASH = '#',
-        EMPTY_STRING = '',
 
         TYPE = 'type',
         SCHEME = 'scheme',
@@ -64,7 +39,7 @@ var URL = function () {
         STRING = 'string',
         TRIM_REGEX = /^\s+|\s+$/g,
 
-        trim, isObject, isString;
+        URL, trim, isObject, isString;
 
 
     // *** Utilities *** //
@@ -73,7 +48,7 @@ var URL = function () {
         return ( s && s.trim ? s.trim() : s );
     } : function (s) {
         try {
-            return s.replace(TRIM_REGEX, EMPTY_STRING);
+            return s.replace(TRIM_REGEX, '');
         } catch(e) { return s; }
     };
 
@@ -85,6 +60,27 @@ var URL = function () {
         return typeof o === STRING;
     };
 
+    /**
+     * URL constructor and utility.
+     * Provides support for validating whether something is a URL,
+     * formats and cleans up URL-like inputs into something nice and pretty,
+     * ability to resolve one URL against another and returned the formatted result,
+     * and is a convenient API for working with URL Objects and the various parts of URLs.
+     *
+     * @constructor URL
+     * @param       {String | URL}  url - the URL String to parse or URL instance to copy
+     * @return      {URL}           url - instance of a URL all nice and parsed
+     */
+
+    URL = function (url) {
+        var u = this;
+
+        if (u && u.hasOwnProperty && (u instanceof URL)) {
+            u._init(url);
+        } else {
+            return new URL(url);
+        }
+    };
 
     // *** Static *** //
 
@@ -171,21 +167,21 @@ var URL = function () {
 
             if (type === ABSOLUTE) {
                 urlParts.push(
-                    scheme ? (scheme + COLON + SLASH_SLASH) : SLASH_SLASH,
+                    scheme ? (scheme + ':' + '//') : '//',
                     this.authority()
                 );
-                if (path && path.indexOf(SLASH) !== 0) {    // this should maybe go in _set
-                    path = SLASH + path;
+                if (path && path.indexOf('/') !== 0) {    // this should maybe go in _set
+                    path = '/' + path;
                 }
             }
 
             urlParts.push(
                 path,
-                query ? (QUESTION + this.queryString()) : EMPTY_STRING,
-                fragment ? (HASH + fragment) : EMPTY_STRING
+                query ? ('?' + this.queryString()) : '',
+                fragment ? ('#' + fragment) : ''
             );
 
-            return urlParts.join(EMPTY_STRING);
+            return urlParts.join('');
         },
 
         // *** Accessor/Mutator Methods *** //
@@ -236,7 +232,7 @@ var URL = function () {
          */
         isHostRelative: function () {
             var path = this._url[PATH];
-            return ( this.isRelative() && path && path.indexOf(SLASH) === 0 );
+            return ( this.isRelative() && path && path.indexOf('/') === 0 );
         },
 
         /**
@@ -300,7 +296,7 @@ var URL = function () {
          */
         domain: function () {
             var host = this._url[HOST];
-            return ( host ? host.split(DOT).slice(-2).join(DOT) : undefined );
+            return ( host ? host.split('.').slice(-2).join('.') : undefined );
         },
 
         /**
@@ -332,11 +328,11 @@ var URL = function () {
 
             return [
 
-                userInfo ? (userInfo + AT) : EMPTY_STRING,
+                userInfo ? (userInfo + '@') : '',
                 host,
-                port ? (COLON + port) : EMPTY_STRING,
+                port ? (':' + port) : ''
 
-            ].join(EMPTY_STRING);
+            ].join('');
         },
 
         /**
@@ -380,16 +376,16 @@ var URL = function () {
                 return this._set(QUERY, this._parseQuery(queryString));
             }
 
-            queryString = EMPTY_STRING;
+            queryString = '';
 
             var query = this._url[QUERY],
                 i, len;
 
             if (query) {
                 for (i = 0, len = query.length; i < len; i++) {
-                    queryString += query[i].join(EQUALS);
+                    queryString += query[i].join('=');
                     if (i < len - 1) {
-                        queryString += AMP;
+                        queryString += '&';
                     }
                 }
             }
@@ -440,7 +436,7 @@ var URL = function () {
                 if (url.isHostRelative() || !this.path()) {
                     path = url.path();
                 } else {
-                    path = this.path().substring(0, this.path().lastIndexOf(SLASH) + 1) + url.path();
+                    path = this.path().substring(0, this.path().lastIndexOf('/') + 1) + url.path();
                 }
 
                 resolved.path(this._normalizePath(path)).query(url.query()).fragment(url.fragment());
@@ -521,7 +517,7 @@ var URL = function () {
                         parsed[USER_INFO] = urlParts[2];
                         parsed[HOST] = urlParts[3].toLowerCase();
                         parsed[PORT] = urlParts[4] ? parseInt(urlParts[4], 10) : undefined;
-                        parsed[PATH] = urlParts[5] || SLASH;
+                        parsed[PATH] = urlParts[5] || '/';
                         parsed[QUERY] = this._parseQuery(urlParts[6]);
                         parsed[FRAGMENT] = urlParts[7];
                     }
@@ -541,7 +537,6 @@ var URL = function () {
                 // try to parse as absolute, if that fails then as relative
                 default:
                     return ( this._parse(url, ABSOLUTE) || this._parse(url, RELATIVE) );
-                    break;
 
             }
 
@@ -570,12 +565,12 @@ var URL = function () {
             queryString = trim(queryString);
 
             var query = [],
-                queryParts = queryString.split(AMP),
+                queryParts = queryString.split('&'),
                 queryPart, i, len;
 
             for (i = 0, len = queryParts.length; i < len; i++) {
                 if (queryParts[i]) {
-                    queryPart = queryParts[i].split(EQUALS);
+                    queryPart = queryParts[i].split('=');
                     query.push(queryPart[1] ? queryPart : [queryPart[0]]);
                 }
             }
@@ -626,30 +621,30 @@ var URL = function () {
 
             var pathParts, pathPart, pathStack, normalizedPath, i, len;
 
-            if (path.indexOf(DOT_DOT_SLASH) > -1) {
+            if (path.indexOf('../') > -1) {
 
-                pathParts = path.split(SLASH);
+                pathParts = path.split('/');
                 pathStack = [];
 
                 for (i = 0, len = pathParts.length; i < len; i++) {
                     pathPart = pathParts[i];
-                    if (pathPart === DOT_DOT) {
+                    if (pathPart === '..') {
                         pathStack.pop();
                     } else if (pathPart) {
                         pathStack.push(pathPart);
                     }
                 }
 
-                normalizedPath = pathStack.join(SLASH);
+                normalizedPath = pathStack.join('/');
 
                 // prepend slash if needed
-                if (path[0] === SLASH) {
-                    normalizedPath = SLASH + normalizedPath;
+                if (path[0] === '/') {
+                    normalizedPath = '/' + normalizedPath;
                 }
 
                 // append slash if needed
-                if (path[path.length - 1] === SLASH && normalizedPath.length > 1) {
-                    normalizedPath += SLASH;
+                if (path[path.length - 1] === '/' && normalizedPath.length > 1) {
+                    normalizedPath += '/';
                 }
 
             } else {
@@ -663,4 +658,6 @@ var URL = function () {
 
     };
 
-}());
+    return URL;
+
+}));
