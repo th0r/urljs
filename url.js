@@ -29,17 +29,21 @@
         PORT = 'port',
         PATH = 'path',
         QUERY = 'query',
-        FRAGMENT = 'fragment',
+        QUERY_OBJ = 'queryObj',
+        HASH = 'hash',
 
         URL_TYPE_REGEX = /^(?:(https?:\/\/|\/\/)|(\/|\?|#)|[^;:@=\.\s])/i,
         URL_ABSOLUTE_REGEX = /^(?:(https?):\/\/|\/\/)(?:([^:@\s]+:?[^:@\s]+?)@)?(localhost|(?:[^;:@=\/\?\.\s]+\.)+[A-Za-z0-9\-]{2,})(?::(\d+))?(?=\/|\?|#|$)([^\?#]+)?(?:\?([^#]+))?(?:#(.+))?/i,
         URL_RELATIVE_REGEX = /^([^\?#]+)?(?:\?([^#]+))?(?:#(.+))?/i,
+        PLUS_SIGN_REGEX = /\+/g,
 
         OBJECT = 'object',
         STRING = 'string',
         TRIM_REGEX = /^\s+|\s+$/g,
 
-        URL, trim, isObject, isString;
+        toString = Object.prototype.toString,
+
+        URL, trim, isObject, isString, isArray, encodeQueryPart, decodeQueryPart;
 
 
     // *** Utilities *** //
@@ -60,6 +64,16 @@
         return typeof o === STRING;
     };
 
+    isArray = function (o) {
+        return toString.call(o) === '[object Array]';
+    };
+
+    encodeQueryPart = encodeURIComponent;
+
+    decodeQueryPart = function (str) {
+        return decodeURIComponent(str.replace(PLUS_SIGN_REGEX, '%20'));
+    };
+
     /**
      * URL constructor and utility.
      * Provides support for validating whether something is a URL,
@@ -69,16 +83,21 @@
      *
      * @constructor URL
      * @param       {String | URL}  url - the URL String to parse or URL instance to copy
+     * @param       {Boolean}  [localResolve=true]
      * @return      {URL}           url - instance of a URL all nice and parsed
      */
 
-    URL = function (url) {
-        var u = this;
+    URL = function (url, localResolve) {
+        var ctor,
+            currentLocation;
 
-        if (u && u.hasOwnProperty && (u instanceof URL)) {
-            u._init(url);
+        if (localResolve === false) {
+            this._init(url);
         } else {
-            return new URL(url);
+            ctor = this.constructor;
+            currentLocation = (ctor.getCurrentLocation || URL.getCurrentLocation).call(ctor);
+
+            return currentLocation.resolve(url);
         }
     };
 
@@ -97,8 +116,8 @@
     /**
      *
      */
-    URL.normalize = function (url) {
-        return new URL(url).toString();
+    URL.normalize = function (url, localResolve) {
+        return new this(url, localResolve).toString();
     };
 
     /**
@@ -112,13 +131,19 @@
      * @return  {String}        resolvedUrl - a resolved URL String
      */
     URL.resolve = function (baseUrl, url) {
-        return new URL(baseUrl).resolve(url).toString();
+        return new this(baseUrl, false).resolve(url).toString();
+    };
+
+    URL.getCurrentLocation = function () {
+        return new this(location.href, false);
     };
 
 
     // *** Prototype *** //
 
     URL.prototype = {
+
+        constructor: URL,
 
         // *** Lifecycle Methods *** //
 
@@ -133,8 +158,6 @@
          * @return  {URL}           url - instance of a URL all nice and parsed/re-parsed
          */
         _init: function (url) {
-
-            this.constructor = URL;
 
             url = isString(url) ? url : url instanceof URL ? url.toString() : null;
 
@@ -162,8 +185,8 @@
                 type = url[TYPE],
                 scheme = url[SCHEME],
                 path = url[PATH],
-                query = url[QUERY],
-                fragment = url[FRAGMENT];
+                query = this.queryString(),
+                hash = url[HASH];
 
             if (type === ABSOLUTE) {
                 urlParts.push(
@@ -177,8 +200,8 @@
 
             urlParts.push(
                 path,
-                query ? ('?' + this.queryString()) : '',
-                fragment ? ('#' + fragment) : ''
+                query ? ('?' + query) : '',
+                hash ? ('#' + hash) : ''
             );
 
             return urlParts.join('');
@@ -235,6 +258,18 @@
             return ( this.isRelative() && path && path.indexOf('/') === 0 );
         },
 
+        isLocal: function () {
+            if (!this.isValid()) {
+                return false;
+            }
+
+            if (this.isRelative()) {
+                return true;
+            }
+
+            return (this.origin() === this.constructor.getCurrentLocation().origin());
+        },
+
         /**
          * Returns the type of the URL, either: URL.ABSOLUTE or URL.RELATIVE.
          *
@@ -253,7 +288,7 @@
          *
          * @public
          * @method  scheme
-         * @param   {String}        scheme  - Optional scheme to set on the URL
+         * @param   {String}        [scheme]  - Optional scheme to set on the URL
          * @return  {String | URL}  the URL scheme or the URL instance
          */
         scheme: function (scheme) {
@@ -266,7 +301,7 @@
          *
          * @public
          * @method  userInfo
-         * @param   {String}        userInfo    - Optional userInfo to set on the URL
+         * @param   {String}        [userInfo]    - Optional userInfo to set on the URL
          * @return  {String | URL}  the URL userInfo or the URL instance
          */
         userInfo: function (userInfo) {
@@ -279,7 +314,7 @@
          *
          * @public
          * @method  host
-         * @param   {String}        host    - Optional host to set on the URL
+         * @param   {String}        [host]    - Optional host to set on the URL
          * @return  {String | URL}  the URL host or the URL instance
          */
         host: function (host) {
@@ -304,11 +339,23 @@
          *
          * @public
          * @method  port
-         * @param   {Number}        port    - Optional port to set on the URL
+         * @param   {Number}        [port]    - Optional port to set on the URL
          * @return  {Number | URL}  the URL port or the URL instance
          */
         port: function (port) {
             return ( arguments.length ? this._set(PORT, port) : this._url[PORT] );
+        },
+
+        origin: function () {
+            var port;
+
+            if (this.isValid() && this.isAbsolute()) {
+                port = this.port();
+
+                return this.scheme() + '://' + this.host() + (port ? ':' + port : '');
+            } else {
+                return null;
+            }
         },
 
         /**
@@ -340,24 +387,40 @@
          *
          * @public
          * @method  path
-         * @param   {String}        path    - Optional path to set on the URL
+         * @param   {String}        [path]    - Optional path to set on the URL
          * @return  {String | URL}  the URL path or the URL instance
          */
         path: function (path) {
             return ( arguments.length ? this._set(PATH, path) : this._url[PATH] );
         },
 
-        /**
-         * Returns or sets the query of the URL.
-         * This takes or returns the parsed query as an Array of Arrays.
-         *
-         * @public
-         * @method  query
-         * @param   {Array}         query   - Optional query to set on the URL
-         * @return  {Array | URL}   the URL query or the URL instance
-         */
-        query: function (query) {
-            return ( arguments.length ? this._set(QUERY, query) : this._url[QUERY] );
+        query: function (key, value) {
+            var argsLen = arguments.length,
+                url = this._url;
+
+            if (argsLen === 2) {
+                // Set query parameter value
+                this._getQueryObject()[key] = value;
+                url[QUERY] = null;
+
+                return this;
+            }
+
+            if (argsLen === 1) {
+                if (isString(key)) {
+                    // Get query parameter value
+                    return this._getQueryObject()[key];
+                } else {
+                    // Set query object
+                    url[QUERY_OBJ] = key;
+                    url[QUERY] = null;
+
+                    return this;
+                }
+            }
+
+            // Get query object
+            return this._getQueryObject();
         },
 
         /**
@@ -366,44 +429,39 @@
          *
          * @public
          * @method  queryString
-         * @param   {String}        queryString - Optional queryString to set on the URL
+         * @param   {String}        [queryString] - Optional queryString to set on the URL
          * @return  {String | URL}  the URL queryString or the URL instance
          */
         queryString: function (queryString) {
+            var url = this._url;
 
-            // parse and set queryString
             if (arguments.length) {
-                return this._set(QUERY, this._parseQuery(queryString));
-            }
+                // Set query string
+                url[QUERY] = queryString;
+                url[QUERY_OBJ] = null;
 
-            queryString = '';
-
-            var query = this._url[QUERY],
-                i, len;
-
-            if (query) {
-                for (i = 0, len = query.length; i < len; i++) {
-                    queryString += query[i].join('=');
-                    if (i < len - 1) {
-                        queryString += '&';
-                    }
+                return this;
+            } else {
+                // Get query string
+                if (url[QUERY] === null) {
+                    url[QUERY] = this._makeQueryString(url[QUERY_OBJ]);
                 }
-            }
 
-            return queryString;
+                return url[QUERY];
+            }
         },
 
         /**
-         * Returns or sets the fragment on the URL.
-         * The fragment does not contain the '#'.
+         * Returns or sets the hash on the URL.
+         * The hash does not contain the '#'.
          *
          * @public
-         * @method  fragment
-         * @param   {String}        fragment    - Optional fragment to set on the URL
-         * @return  {String | URL}  the URL fragment or the URL instance
+         * @method  hash
+         * @param   {String}        [hash]    - Optional hash to set on the URL
+         * @return  {String | URL}  the URL hash or the URL instance
          */
-        fragment: function (fragment) {
-            return ( arguments.length ? this._set(FRAGMENT, fragment) : this._url[FRAGMENT] );
+        hash: function (hash) {
+            return ( arguments.length ? this._set(HASH, hash) : this._url[HASH] );
         },
 
         /**
@@ -417,7 +475,7 @@
          */
         resolve: function (url) {
 
-            url = (url instanceof URL) ? url : new URL(url);
+            url = (url instanceof URL) ? url : new this.constructor(url, false);
 
             var resolved, path;
 
@@ -425,11 +483,11 @@
 
             // the easy way
             if (url.isAbsolute()) {
-                return ( this.isAbsolute() ? url.scheme() ? url : new URL(url).scheme(this.scheme()) : url );
+                return ( this.isAbsolute() ? url.scheme() ? url : new this.constructor(url, false).scheme(this.scheme()) : url );
             }
 
             // the hard way
-            resolved = new URL(this.isAbsolute() ? this : null);
+            resolved = new this.constructor(this.isAbsolute() ? this : null, false);
 
             if (url.path()) {
 
@@ -439,12 +497,12 @@
                     path = this.path().substring(0, this.path().lastIndexOf('/') + 1) + url.path();
                 }
 
-                resolved.path(this._normalizePath(path)).query(url.query()).fragment(url.fragment());
+                resolved.path(this._normalizePath(path)).queryString(url.queryString()).hash(url.hash());
 
-            } else if (url.query()) {
-                resolved.query(url.query()).fragment(url.fragment());
-            } else if (url.fragment()) {
-                resolved.fragment(url.fragment());
+            } else if (url.queryString()) {
+                resolved.queryString(url.queryString()).hash(url.hash());
+            } else if (url.hash()) {
+                resolved.hash(url.hash());
             }
 
             return resolved;
@@ -463,7 +521,7 @@
          */
         reduce: function (url) {
 
-            url = (url instanceof URL) ? url : new URL(url);
+            url = (url instanceof URL) ? url : new this.constructor(url, false);
 
             var reduced = this.resolve(url);
 
@@ -487,7 +545,7 @@
          * @private
          * @method  _parse
          * @param   {String}    url     - the URL string to parse
-         * @param   {String}    type    - Optional type to seed parsing: URL.ABSOLUTE or URL.RELATIVE
+         * @param   {String}    [type]    - Optional type to seed parsing: URL.ABSOLUTE or URL.RELATIVE
          * @return  {Boolean}   parsed  - whether or not the URL string was parsed
          */
         _parse: function (url, type) {
@@ -518,8 +576,8 @@
                         parsed[HOST] = urlParts[3].toLowerCase();
                         parsed[PORT] = urlParts[4] ? parseInt(urlParts[4], 10) : undefined;
                         parsed[PATH] = urlParts[5] || '/';
-                        parsed[QUERY] = this._parseQuery(urlParts[6]);
-                        parsed[FRAGMENT] = urlParts[7];
+                        parsed[QUERY] = urlParts[6] || '';
+                        parsed[HASH] = urlParts[7];
                     }
                     break;
 
@@ -529,8 +587,8 @@
                         parsed = {};
                         parsed[TYPE] = RELATIVE;
                         parsed[PATH] = urlParts[1];
-                        parsed[QUERY] = this._parseQuery(urlParts[2]);
-                        parsed[FRAGMENT] = urlParts[3];
+                        parsed[QUERY] = urlParts[2] || '';
+                        parsed[HASH] = urlParts[3];
                     }
                     break;
 
@@ -541,6 +599,7 @@
             }
 
             if (parsed) {
+                parsed[QUERY_OBJ] = null;
                 this._url = parsed;
                 return true;
             } else {
@@ -558,24 +617,70 @@
          * @param   {String}    queryString - the query string to parse, should not include '?'
          * @return  {Array}     parsedQuery - array of arrays representing the query parameters and values
          */
-        _parseQuery: function (queryString) {
-
-            if (!isString(queryString)) { return; }
-
-            queryString = trim(queryString);
-
-            var query = [],
+        _parseQueryString: function (queryString) {
+            var queryObj = {},
                 queryParts = queryString.split('&'),
-                queryPart, i, len;
+                queryPart,
+                key,
+                value,
+                valueIndex,
+                i = 0,
+                len = queryParts.length;
 
-            for (i = 0, len = queryParts.length; i < len; i++) {
-                if (queryParts[i]) {
-                    queryPart = queryParts[i].split('=');
-                    query.push(queryPart[1] ? queryPart : [queryPart[0]]);
+            for (; i < len; i++) {
+                queryPart = queryParts[i];
+                valueIndex = queryPart.indexOf('=');
+                key = decodeQueryPart(queryPart.slice(0, valueIndex));
+                if (key) {
+                    value = decodeQueryPart(queryPart.slice(valueIndex + 1));
+                    if (queryObj.hasOwnProperty(key)) {
+                        if (isArray(queryObj[key])) {
+                            queryObj[key].push(value);
+                        } else {
+                            queryObj[key] = [queryObj[key], value];
+                        }
+                    } else {
+                        queryObj[key] = value;
+                    }
                 }
             }
 
-            return query;
+            return queryObj;
+        },
+
+        _makeQueryString: function (queryObj) {
+            var parts = [],
+                key,
+                value,
+                i,
+                len;
+
+            for (key in queryObj) {
+                if (queryObj.hasOwnProperty(key)) {
+                    value = queryObj[key];
+                    key = encodeQueryPart(key);
+
+                    if (isArray(value)) {
+                        for (i = 0, len = value.length; i < len; i++) {
+                            parts.push(key + '=' + encodeQueryPart(value[i]));
+                        }
+                    } else {
+                        parts.push(key + '=' + encodeQueryPart(value));
+                    }
+                }
+            }
+
+            return parts.join('&');
+        },
+
+        _getQueryObject: function () {
+            var url = this._url;
+
+            if (url[QUERY_OBJ] === null) {
+                url[QUERY_OBJ] = this._parseQueryString(url[QUERY]);
+            }
+
+            return url[QUERY_OBJ];
         },
 
         /**
